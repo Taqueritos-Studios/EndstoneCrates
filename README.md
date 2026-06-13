@@ -23,7 +23,7 @@ Source layout:
 - `src/crates/plugin.py` - Endstone plugin entry point
 - `src/crates/commands/` - player and admin command handling
 - `src/crates/listeners/` - Endstone event listeners
-- `src/crates/managers/` - crate logic, rewards, keys, holograms, stats
+- `src/crates/managers/` - crate logic, rewards, keys, stats
 - `src/crates/storage/` - JSON persistence helpers
 - `src/crates/constants.py` - default config/messages/crates
 
