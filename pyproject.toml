@@ -1,0 +1,14 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "endstone-crates"
+version = "1.0.0"
+description = "Crates plugin for Endstone"
+
+[project.entry-points."endstone"]
+crates = "crates:CratesPlugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/crates"]
