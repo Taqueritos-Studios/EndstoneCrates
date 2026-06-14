@@ -16,7 +16,7 @@ class JsonStorage:
             return fallback
 
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
         except Exception as error:
             self.logger.error(f"Could not load {path.name}: {error}")
             return fallback
@@ -40,7 +40,7 @@ class JsonStorage:
         path.parent.mkdir(parents=True, exist_ok=True)
         content = json.dumps(data, indent=4) + "\n"
 
-        if path.exists() and path.read_text(encoding="utf-8") == content:
+        if path.exists() and path.read_text(encoding="utf-8-sig") == content:
             return
 
         path.write_text(content, encoding="utf-8")

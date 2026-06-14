@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "endstone-crates"
-version = "1.0.0"
+version = "1.0.1"
 description = "Crates plugin for Endstone"
 
 [project.entry-points."endstone"]

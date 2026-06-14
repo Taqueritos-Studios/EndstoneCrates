@@ -10,6 +10,7 @@ from endstone.level import Location
 from endstone.nbt import CompoundTag, StringTag
 
 from crates.constants import COLOR, default_config
+from crates.packets import FloatingTextPacket
 from crates.storage import JsonStorage
 
 
@@ -30,6 +31,9 @@ class CrateManager:
         self.pending_removals: set[str] = set()
         self.opening_players: set[str] = set()
         self.cooldowns: dict[str, float] = {}
+        self.floating_texts: dict[int, dict[str, Any]] = {}
+        self.shown_floating_texts: dict[str, set[int]] = {}
+        self.hologram_task = None
 
         self.reload_all()
 
@@ -49,6 +53,7 @@ class CrateManager:
             if isinstance(location, dict) and "crate" in location
         ]
         self.rebuild_location_index()
+        self.refresh_holograms()
 
     def rebuild_location_index(self):
         self.locations_by_key: dict[str, dict[str, Any]] = {}
@@ -68,6 +73,31 @@ class CrateManager:
 
     def save_stats(self):
         self.storage.save_dict(self.stats_path, self.stats)
+
+    def start_tasks(self):
+        if self.hologram_task is not None:
+            try:
+                self.hologram_task.cancel()
+            except Exception:
+                pass
+
+        interval = max(1, int(self.config.get("holograms", {}).get("update_interval_ticks", 20)))
+        self.hologram_task = self.server.scheduler.run_task(
+            self.plugin,
+            self.update_floating_text_clients,
+            delay=1,
+            period=interval,
+        )
+
+    def stop_tasks(self):
+        if self.hologram_task is None:
+            return
+
+        try:
+            self.hologram_task.cancel()
+        except Exception:
+            pass
+        self.hologram_task = None
 
     def get_dimension_by_name(self, dimension_name: str) -> Any | None:
         try:
@@ -442,6 +472,97 @@ class CrateManager:
     def get_location_for_block(self, block: Any) -> dict[str, Any] | None:
         return self.locations_by_key.get(self.block_key(block))
 
+    def refresh_holograms(self):
+        self.remove_floating_texts()
+        self.floating_texts = {}
+
+        holograms = self.config.get("holograms", {})
+        if not bool(holograms.get("enabled", True)):
+            return
+
+        next_id = random.randint(10_000_000, 90_000_000)
+        y_offset = float(holograms.get("y_offset", 1.35))
+
+        for location in self.locations:
+            crate_id = str(location.get("crate", ""))
+            if self.get_crate(crate_id) is None:
+                continue
+
+            next_id += 1
+            self.floating_texts[next_id] = {
+                "text": self.create_hologram_text(crate_id),
+                "dimension": str(location.get("dimension", "")),
+                "actor_identifier": str(holograms.get("actor_identifier", "armor_stand")),
+                "x": float(location.get("x", 0)) + 0.5,
+                "y": float(location.get("y", 0)) + y_offset,
+                "z": float(location.get("z", 0)) + 0.5,
+            }
+
+    def create_hologram_text(self, crate_id: str) -> str:
+        holograms = self.config.get("holograms", {})
+        lines = holograms.get("lines", ["{name}"])
+        if not isinstance(lines, list):
+            lines = ["{name}"]
+
+        return "\n".join(
+            self.format_text(
+                line,
+                crate=crate_id,
+                name=self.get_crate_name(crate_id),
+                key=self.get_key_name(crate_id),
+            )
+            for line in lines
+        )
+
+    def update_floating_text_clients(self):
+        if not self.floating_texts:
+            return
+
+        for player in self.server.online_players:
+            player_key = self.player_key(player)
+            shown = self.shown_floating_texts.setdefault(player_key, set())
+            player_dimension = self.get_dimension_name(player.location.dimension)
+
+            for actor_id, text_data in self.floating_texts.items():
+                if str(text_data["dimension"]).lower() == player_dimension.lower():
+                    self.send_floating_text(player, actor_id, text_data)
+                    shown.add(actor_id)
+                elif actor_id in shown:
+                    self.remove_floating_text(player, actor_id)
+                    shown.discard(actor_id)
+
+    def send_floating_text(self, player: Any, actor_id: int, text_data: dict[str, Any]):
+        try:
+            player.send_packet(
+                FloatingTextPacket.ADD_ACTOR_PACKET_ID,
+                FloatingTextPacket.add(
+                    actor_id,
+                    str(text_data["text"]),
+                    float(text_data["x"]),
+                    float(text_data["y"]),
+                    float(text_data["z"]),
+                    str(text_data.get("actor_identifier", "armor_stand")),
+                ),
+            )
+        except Exception as error:
+            self.logger.debug(f"Could not send crate hologram to {player.name}: {error}")
+
+    def remove_floating_text(self, player: Any, actor_id: int):
+        try:
+            player.send_packet(
+                FloatingTextPacket.REMOVE_ACTOR_PACKET_ID,
+                FloatingTextPacket.remove(actor_id),
+            )
+        except Exception as error:
+            self.logger.debug(f"Could not remove crate hologram from {player.name}: {error}")
+
+    def remove_floating_texts(self):
+        for player in self.server.online_players:
+            player_key = self.player_key(player)
+            for actor_id in list(self.shown_floating_texts.get(player_key, set())):
+                self.remove_floating_text(player, actor_id)
+        self.shown_floating_texts.clear()
+
     def start_link_mode(self, player: Any, crate_id: str):
         crate_id = self.match_crate_id(crate_id) or crate_id
         if self.get_crate(crate_id) is None:
@@ -503,6 +624,8 @@ class CrateManager:
         }
         self.locations.append(location)
         self.save_locations()
+        self.refresh_holograms()
+        self.update_floating_text_clients()
 
         if bool(self.config.get("settings", {}).get("set_block_on_link", True)):
             block_type = crate.get(
@@ -527,6 +650,8 @@ class CrateManager:
 
         self.locations.remove(location)
         self.save_locations()
+        self.refresh_holograms()
+        self.update_floating_text_clients()
         self.send(
             player,
             "admin.remove.done",

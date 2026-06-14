@@ -17,6 +17,17 @@ def default_config() -> dict[str, Any]:
             "admin_bypass_keys": False,
             "crate_cooldown_seconds": 1,
         },
+        "holograms": {
+            "enabled": True,
+            "actor_identifier": "armor_stand",
+            "y_offset": 1.35,
+            "update_interval_ticks": 20,
+            "lines": [
+                "{name}",
+                "&7Right-click to open",
+                "&8Left-click to preview",
+            ],
+        },
         "opening": {
             "spin_ticks": 36,
             "spin_interval_ticks": 3,

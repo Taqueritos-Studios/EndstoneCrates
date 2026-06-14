@@ -53,10 +53,13 @@ class CratesPlugin(Plugin):
         self.command_handler = CratesCommand(self.manager)
         self.listener = CratesListener(self.manager)
         self.register_events(self.listener)
+        self.manager.start_tasks()
         self.logger.info(f"Crates enabled with {len(self.manager.config.get('crates', {}))} crates.")
 
     def on_disable(self):
         if hasattr(self, "manager"):
+            self.manager.stop_tasks()
+            self.manager.remove_floating_texts()
             self.manager.save_locations()
             self.manager.save_stats()
         self.logger.info("Crates disabled.")
