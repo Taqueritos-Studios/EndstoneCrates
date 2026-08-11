@@ -33,6 +33,7 @@ class CrateManager:
         self.cooldowns: dict[str, float] = {}
         self.floating_texts: dict[int, dict[str, Any]] = {}
         self.shown_floating_texts: dict[str, set[int]] = {}
+        self.unsupported_hologram_protocol_warned = False
         self.hologram_task = None
 
         self.reload_all()
@@ -492,7 +493,7 @@ class CrateManager:
             self.floating_texts[next_id] = {
                 "text": self.create_hologram_text(crate_id),
                 "dimension": str(location.get("dimension", "")),
-                "actor_identifier": str(holograms.get("actor_identifier", "armor_stand")),
+                "actor_identifier": str(holograms.get("actor_identifier", "falling_block")),
                 "x": float(location.get("x", 0)) + 0.5,
                 "y": float(location.get("y", 0)) + y_offset,
                 "z": float(location.get("z", 0)) + 0.5,
@@ -518,20 +519,48 @@ class CrateManager:
         if not self.floating_texts:
             return
 
+        online_player_keys: set[str] = set()
         for player in self.server.online_players:
             player_key = self.player_key(player)
+            online_player_keys.add(player_key)
             shown = self.shown_floating_texts.setdefault(player_key, set())
             player_dimension = self.get_dimension_name(player.location.dimension)
 
             for actor_id, text_data in self.floating_texts.items():
                 if str(text_data["dimension"]).lower() == player_dimension.lower():
-                    self.send_floating_text(player, actor_id, text_data)
-                    shown.add(actor_id)
+                    if actor_id not in shown and self.send_floating_text(player, actor_id, text_data):
+                        shown.add(actor_id)
                 elif actor_id in shown:
                     self.remove_floating_text(player, actor_id)
                     shown.discard(actor_id)
 
-    def send_floating_text(self, player: Any, actor_id: int, text_data: dict[str, Any]):
+        for player_key in set(self.shown_floating_texts) - online_player_keys:
+            self.shown_floating_texts.pop(player_key, None)
+
+    def get_protocol_version(self) -> int:
+        try:
+            return int(self.server.protocol_version)
+        except (AttributeError, TypeError, ValueError):
+            return 0
+
+    def supports_hologram_packets(self) -> bool:
+        protocol_version = self.get_protocol_version()
+        if FloatingTextPacket.supports(protocol_version):
+            return True
+
+        if not self.unsupported_hologram_protocol_warned:
+            supported = ", ".join(str(version) for version in sorted(FloatingTextPacket.SUPPORTED_PROTOCOLS))
+            self.logger.warning(
+                f"Crate holograms are disabled for Bedrock protocol {protocol_version}; "
+                f"this plugin build supports protocol {supported}."
+            )
+            self.unsupported_hologram_protocol_warned = True
+        return False
+
+    def send_floating_text(self, player: Any, actor_id: int, text_data: dict[str, Any]) -> bool:
+        if not self.supports_hologram_packets():
+            return False
+
         try:
             player.send_packet(
                 FloatingTextPacket.ADD_ACTOR_PACKET_ID,
@@ -541,17 +570,23 @@ class CrateManager:
                     float(text_data["x"]),
                     float(text_data["y"]),
                     float(text_data["z"]),
-                    str(text_data.get("actor_identifier", "armor_stand")),
+                    str(text_data.get("actor_identifier", "falling_block")),
+                    protocol_version=self.get_protocol_version(),
                 ),
             )
+            return True
         except Exception as error:
-            self.logger.debug(f"Could not send crate hologram to {player.name}: {error}")
+            self.logger.warning(f"Could not send crate hologram to {player.name}: {error}")
+            return False
 
     def remove_floating_text(self, player: Any, actor_id: int):
+        if not self.supports_hologram_packets():
+            return
+
         try:
             player.send_packet(
                 FloatingTextPacket.REMOVE_ACTOR_PACKET_ID,
-                FloatingTextPacket.remove(actor_id),
+                FloatingTextPacket.remove(actor_id, protocol_version=self.get_protocol_version()),
             )
         except Exception as error:
             self.logger.debug(f"Could not remove crate hologram from {player.name}: {error}")

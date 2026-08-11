@@ -19,7 +19,7 @@ def default_config() -> dict[str, Any]:
         },
         "holograms": {
             "enabled": True,
-            "actor_identifier": "armor_stand",
+            "actor_identifier": "falling_block",
             "y_offset": 1.35,
             "update_interval_ticks": 20,
             "lines": [
