@@ -34,3 +34,25 @@ On first server load, the plugin creates these files in `bedrock_server/plugins/
 - `stats.json` - per-player and total crate open stats
 
 Rewards support inventory items, console commands, player commands, XP, XP levels, private messages, and broadcasts. Left-click a linked crate, or sneak and right-click it, to preview rewards. Right-click normally to open it.
+
+### Command rewards
+
+A reward does not need an `items` entry. Use `commands` to run one or more commands as the
+server console when the reward is won:
+
+```json
+{
+    "id": "vip_rank",
+    "display_name": "&6VIP Rank",
+    "weight": 5,
+    "broadcast": true,
+    "commands": [
+        "say {player} won {reward} from the {crate} crate!"
+    ]
+}
+```
+
+Use `player_commands` for commands that must be performed by the winning player instead.
+The available placeholders are `{player}`, `{crate}`, and `{reward}`. Commands may be
+written with or without a leading `/`. For a single command, the singular keys `command`
+and `player_command` are also accepted.

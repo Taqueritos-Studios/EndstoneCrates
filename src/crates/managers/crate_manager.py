@@ -11,6 +11,7 @@ from endstone.nbt import CompoundTag, StringTag
 
 from crates.constants import COLOR, default_config
 from crates.packets import FloatingTextPacket
+from crates.rewards import command_templates, format_reward_command
 from crates.storage import JsonStorage
 
 
@@ -857,27 +858,33 @@ class CrateManager:
         if exp_levels > 0:
             player.give_exp_levels(exp_levels)
 
-        for command in reward.get("commands", []) or []:
-            command_line = str(command).format(
-                player=player.name,
-                crate=crate_id,
-                reward=self.reward_name(reward),
-            )
+        for command in command_templates(reward, "commands", "command"):
             try:
+                command_line = format_reward_command(
+                    command,
+                    player=player.name,
+                    crate=crate_id,
+                    reward=self.reward_name(reward),
+                )
+                if not command_line:
+                    continue
                 self.server.dispatch_command(self.server.command_sender, command_line)
             except Exception as error:
-                self.logger.error(f"Could not run crate reward command '{command_line}': {error}")
+                self.logger.error(f"Could not run crate reward command '{command}': {error}")
 
-        for command in reward.get("player_commands", []) or []:
-            command_line = str(command).format(
-                player=player.name,
-                crate=crate_id,
-                reward=self.reward_name(reward),
-            )
+        for command in command_templates(reward, "player_commands", "player_command"):
             try:
+                command_line = format_reward_command(
+                    command,
+                    player=player.name,
+                    crate=crate_id,
+                    reward=self.reward_name(reward),
+                )
+                if not command_line:
+                    continue
                 player.perform_command(command_line)
             except Exception as error:
-                self.logger.error(f"Could not run player reward command '{command_line}': {error}")
+                self.logger.error(f"Could not run player reward command '{command}': {error}")
 
         for message in reward.get("messages", []) or []:
             self.send_raw(
